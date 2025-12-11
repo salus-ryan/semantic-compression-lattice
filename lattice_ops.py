@@ -1051,3 +1051,553 @@ def create_hardened_shell_verifier() -> ShellVerifier:
     verifier.add_shell(MathShell())
     verifier.add_shell(CodeExecutionShell())
     return verifier
+
+
+# =============================================================================
+# Lattice Join (⊔) Operation - Theorem 1, Part 2
+# =============================================================================
+
+@dataclass
+class LatticeVertex:
+    """
+    A vertex in the semantic lattice representing a meaning atom with metadata.
+    
+    Used for serialization and lattice operations (Join/Meet).
+    """
+    id: str
+    text: str
+    embedding: Optional[np.ndarray] = None
+    semantic_energy: float = 0.0
+    source_domain: str = ""  # e.g., "law", "code", "medicine"
+    metadata: Dict = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict:
+        """Serialize vertex to dictionary."""
+        return {
+            "id": self.id,
+            "text": self.text,
+            "embedding": self.embedding.tolist() if self.embedding is not None else None,
+            "semantic_energy": self.semantic_energy,
+            "source_domain": self.source_domain,
+            "metadata": self.metadata
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "LatticeVertex":
+        """Deserialize vertex from dictionary."""
+        embedding = None
+        if data.get("embedding") is not None:
+            embedding = np.array(data["embedding"], dtype=np.float32)
+        return cls(
+            id=data["id"],
+            text=data["text"],
+            embedding=embedding,
+            semantic_energy=data.get("semantic_energy", 0.0),
+            source_domain=data.get("source_domain", ""),
+            metadata=data.get("metadata", {})
+        )
+    
+    @classmethod
+    def from_atom(cls, atom: MeaningAtom, domain: str = "") -> "LatticeVertex":
+        """Create vertex from a MeaningAtom."""
+        import hashlib
+        vertex_id = hashlib.md5(atom.text.encode()).hexdigest()[:16]
+        return cls(
+            id=vertex_id,
+            text=atom.text,
+            embedding=atom.embedding,
+            semantic_energy=atom.semantic_energy,
+            source_domain=domain,
+            metadata={
+                "source_model": atom.source_model,
+                "log_prob": atom.log_prob,
+                "is_high_energy": atom.is_high_energy
+            }
+        )
+
+
+@dataclass
+class LatticeEdge:
+    """
+    A hyperedge in the semantic lattice connecting vertices.
+    
+    Represents semantic relationships between meaning atoms.
+    """
+    id: str
+    source_id: str
+    target_ids: List[str]
+    weight: float = 1.0
+    edge_type: str = "semantic"  # semantic, causal, temporal
+    
+    def to_dict(self) -> Dict:
+        """Serialize edge to dictionary."""
+        return {
+            "id": self.id,
+            "source_id": self.source_id,
+            "target_ids": self.target_ids,
+            "weight": self.weight,
+            "edge_type": self.edge_type
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "LatticeEdge":
+        """Deserialize edge from dictionary."""
+        return cls(
+            id=data["id"],
+            source_id=data["source_id"],
+            target_ids=data["target_ids"],
+            weight=data.get("weight", 1.0),
+            edge_type=data.get("edge_type", "semantic")
+        )
+
+
+@dataclass
+class SemanticLattice:
+    """
+    A complete semantic lattice structure for serialization and operations.
+    
+    Contains vertices (meaning atoms) and edges (semantic relationships).
+    This is the fundamental data structure for Join/Meet operations.
+    """
+    name: str
+    domain: str
+    vertices: Dict[str, LatticeVertex] = field(default_factory=dict)
+    edges: Dict[str, LatticeEdge] = field(default_factory=dict)
+    metadata: Dict = field(default_factory=dict)
+    
+    def add_vertex(self, vertex: LatticeVertex):
+        """Add a vertex to the lattice."""
+        self.vertices[vertex.id] = vertex
+    
+    def add_edge(self, edge: LatticeEdge):
+        """Add an edge to the lattice."""
+        self.edges[edge.id] = edge
+    
+    def get_vertex_by_text(self, text: str) -> Optional[LatticeVertex]:
+        """Find vertex by exact text match."""
+        for v in self.vertices.values():
+            if v.text == text:
+                return v
+        return None
+    
+    def to_dict(self) -> Dict:
+        """Serialize lattice to dictionary."""
+        return {
+            "name": self.name,
+            "domain": self.domain,
+            "vertices": {k: v.to_dict() for k, v in self.vertices.items()},
+            "edges": {k: e.to_dict() for k, e in self.edges.items()},
+            "metadata": self.metadata
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "SemanticLattice":
+        """Deserialize lattice from dictionary."""
+        lattice = cls(
+            name=data["name"],
+            domain=data["domain"],
+            metadata=data.get("metadata", {})
+        )
+        for vid, vdata in data.get("vertices", {}).items():
+            lattice.vertices[vid] = LatticeVertex.from_dict(vdata)
+        for eid, edata in data.get("edges", {}).items():
+            lattice.edges[eid] = LatticeEdge.from_dict(edata)
+        return lattice
+    
+    def save(self, path: str):
+        """Save lattice to JSON file."""
+        import json
+        with open(path, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+    
+    @classmethod
+    def load(cls, path: str) -> "SemanticLattice":
+        """Load lattice from JSON file."""
+        import json
+        with open(path, 'r') as f:
+            return cls.from_dict(json.load(f))
+
+
+class LatticeJoin:
+    """
+    Implements the Lattice Join (⊔) operation from Theorem 1.
+    
+    The Join is defined as the Least Upper Bound (LUB) of two lattices:
+    - Performs disjoint union of vertex sets
+    - Resolves conflicts using curvature (semantic energy) - lower energy wins
+    - Pushes forward curvature from both lattices
+    
+    This enables "Modular Intelligence" - combining knowledge domains:
+    - Law Lattice ⊔ Code Lattice → Legal Tech Agent
+    - Medicine Lattice ⊔ Research Lattice → Medical Research Agent
+    
+    Reference: Theorem 1, Part 2 - "The Join (⊔) is the Least Upper Bound"
+    """
+    
+    def __init__(
+        self,
+        embedder=None,
+        similarity_threshold: float = 0.85,
+        conflict_resolution: str = "energy"  # "energy", "recency", "source_priority"
+    ):
+        """
+        Args:
+            embedder: Sentence embedding model for semantic similarity
+            similarity_threshold: Threshold for considering vertices as duplicates
+            conflict_resolution: Strategy for resolving conflicts:
+                - "energy": Keep vertex with lower semantic energy (κ)
+                - "recency": Keep more recent vertex
+                - "source_priority": Use domain priority ordering
+        """
+        self.embedder = embedder
+        self.similarity_threshold = similarity_threshold
+        self.conflict_resolution = conflict_resolution
+        self._domain_priority: Dict[str, int] = {}
+    
+    def set_domain_priority(self, priorities: Dict[str, int]):
+        """
+        Set priority ordering for domains in conflict resolution.
+        
+        Higher priority number = preferred in conflicts.
+        Example: {"verified": 10, "academic": 8, "web": 3}
+        """
+        self._domain_priority = priorities
+    
+    def _compute_similarity(
+        self, 
+        v1: LatticeVertex, 
+        v2: LatticeVertex
+    ) -> float:
+        """Compute semantic similarity between two vertices."""
+        if v1.embedding is None or v2.embedding is None:
+            # Fall back to text comparison
+            return 1.0 if v1.text == v2.text else 0.0
+        
+        # Cosine similarity (embeddings should be normalized)
+        return float(np.dot(v1.embedding, v2.embedding))
+    
+    def _find_conflicts(
+        self,
+        lattice_a: SemanticLattice,
+        lattice_b: SemanticLattice
+    ) -> List[Tuple[LatticeVertex, LatticeVertex, float]]:
+        """
+        Find conflicting vertices between two lattices.
+        
+        Conflicts are vertices that are semantically similar but potentially
+        have different content or energy levels.
+        
+        Returns list of (vertex_a, vertex_b, similarity) tuples.
+        """
+        conflicts = []
+        
+        for va in lattice_a.vertices.values():
+            for vb in lattice_b.vertices.values():
+                similarity = self._compute_similarity(va, vb)
+                if similarity >= self.similarity_threshold:
+                    conflicts.append((va, vb, similarity))
+        
+        return conflicts
+    
+    def _resolve_conflict(
+        self,
+        v1: LatticeVertex,
+        v2: LatticeVertex,
+        similarity: float
+    ) -> LatticeVertex:
+        """
+        Resolve conflict between two similar vertices.
+        
+        Uses the configured conflict resolution strategy.
+        Returns the winning vertex (possibly merged).
+        """
+        if self.conflict_resolution == "energy":
+            # Lower semantic energy wins (more stable/confident)
+            winner = v1 if v1.semantic_energy <= v2.semantic_energy else v2
+            loser = v2 if winner is v1 else v1
+            
+        elif self.conflict_resolution == "recency":
+            # More recent wins
+            t1 = v1.metadata.get("timestamp", 0)
+            t2 = v2.metadata.get("timestamp", 0)
+            winner = v1 if t1 >= t2 else v2
+            loser = v2 if winner is v1 else v1
+            
+        elif self.conflict_resolution == "source_priority":
+            # Higher domain priority wins
+            p1 = self._domain_priority.get(v1.source_domain, 0)
+            p2 = self._domain_priority.get(v2.source_domain, 0)
+            winner = v1 if p1 >= p2 else v2
+            loser = v2 if winner is v1 else v1
+            
+        else:
+            # Default: energy-based
+            winner = v1 if v1.semantic_energy <= v2.semantic_energy else v2
+            loser = v2 if winner is v1 else v1
+        
+        # Create merged vertex with provenance tracking
+        merged = LatticeVertex(
+            id=winner.id,
+            text=winner.text,
+            embedding=winner.embedding,
+            semantic_energy=winner.semantic_energy,
+            source_domain=winner.source_domain,
+            metadata={
+                **winner.metadata,
+                "merged_from": [v1.id, v2.id],
+                "merge_similarity": similarity,
+                "alternate_text": loser.text if loser.text != winner.text else None,
+                "alternate_energy": loser.semantic_energy
+            }
+        )
+        
+        return merged
+    
+    def compute_join(
+        self,
+        lattice_a: SemanticLattice,
+        lattice_b: SemanticLattice,
+        name: Optional[str] = None,
+        domain: Optional[str] = None
+    ) -> Tuple[SemanticLattice, Dict]:
+        """
+        Compute the Lattice Join (⊔) of two semantic lattices.
+        
+        L_A ⊔ L_B = Least Upper Bound
+        
+        Algorithm:
+        1. Start with disjoint union of all vertices
+        2. Find semantically similar vertices (potential conflicts)
+        3. Resolve conflicts using curvature (energy) - lower wins
+        4. Merge edges, updating vertex references
+        5. Recompute edge weights based on merged structure
+        
+        Args:
+            lattice_a: First lattice (e.g., "Law Lattice")
+            lattice_b: Second lattice (e.g., "Code Lattice")
+            name: Name for the joined lattice
+            domain: Domain label for the joined lattice
+        
+        Returns:
+            (joined_lattice, metadata): The LUB lattice and operation statistics
+        """
+        # Create result lattice
+        joined_name = name or f"{lattice_a.name}⊔{lattice_b.name}"
+        joined_domain = domain or f"{lattice_a.domain}+{lattice_b.domain}"
+        
+        result = SemanticLattice(
+            name=joined_name,
+            domain=joined_domain,
+            metadata={
+                "source_lattices": [lattice_a.name, lattice_b.name],
+                "join_threshold": self.similarity_threshold,
+                "conflict_resolution": self.conflict_resolution
+            }
+        )
+        
+        # Track statistics
+        stats = {
+            "vertices_a": len(lattice_a.vertices),
+            "vertices_b": len(lattice_b.vertices),
+            "edges_a": len(lattice_a.edges),
+            "edges_b": len(lattice_b.edges),
+            "conflicts_found": 0,
+            "conflicts_resolved": 0,
+            "vertices_merged": 0,
+            "final_vertices": 0,
+            "final_edges": 0
+        }
+        
+        # Step 1: Find conflicts
+        conflicts = self._find_conflicts(lattice_a, lattice_b)
+        stats["conflicts_found"] = len(conflicts)
+        
+        # Build conflict mapping: vertex_id -> resolved_vertex
+        conflict_map_a: Dict[str, LatticeVertex] = {}  # A vertices that were merged
+        conflict_map_b: Dict[str, LatticeVertex] = {}  # B vertices that were merged
+        merged_vertices: Set[str] = set()  # IDs of vertices that resulted from merges
+        
+        # Step 2: Resolve conflicts
+        for va, vb, similarity in conflicts:
+            merged = self._resolve_conflict(va, vb, similarity)
+            conflict_map_a[va.id] = merged
+            conflict_map_b[vb.id] = merged
+            merged_vertices.add(merged.id)
+            stats["conflicts_resolved"] += 1
+        
+        # Step 3: Add all vertices (disjoint union with conflict resolution)
+        # Add vertices from A
+        for vid, vertex in lattice_a.vertices.items():
+            if vid in conflict_map_a:
+                # This vertex was merged - add the merged version
+                merged = conflict_map_a[vid]
+                if merged.id not in result.vertices:
+                    result.add_vertex(merged)
+                    stats["vertices_merged"] += 1
+            else:
+                # No conflict - add directly with domain prefix to ensure uniqueness
+                new_vertex = LatticeVertex(
+                    id=f"a_{vid}",
+                    text=vertex.text,
+                    embedding=vertex.embedding,
+                    semantic_energy=vertex.semantic_energy,
+                    source_domain=vertex.source_domain or lattice_a.domain,
+                    metadata={**vertex.metadata, "source_lattice": lattice_a.name}
+                )
+                result.add_vertex(new_vertex)
+        
+        # Add vertices from B (skip those already merged)
+        for vid, vertex in lattice_b.vertices.items():
+            if vid in conflict_map_b:
+                # Already handled via conflict resolution
+                continue
+            else:
+                # No conflict - add directly with domain prefix
+                new_vertex = LatticeVertex(
+                    id=f"b_{vid}",
+                    text=vertex.text,
+                    embedding=vertex.embedding,
+                    semantic_energy=vertex.semantic_energy,
+                    source_domain=vertex.source_domain or lattice_b.domain,
+                    metadata={**vertex.metadata, "source_lattice": lattice_b.name}
+                )
+                result.add_vertex(new_vertex)
+        
+        # Step 4: Merge edges with vertex ID remapping
+        def remap_vertex_id(vid: str, source: str) -> str:
+            """Remap vertex ID to the joined lattice."""
+            if source == "a":
+                if vid in conflict_map_a:
+                    return conflict_map_a[vid].id
+                return f"a_{vid}"
+            else:  # source == "b"
+                if vid in conflict_map_b:
+                    return conflict_map_b[vid].id
+                return f"b_{vid}"
+        
+        # Add edges from A
+        for eid, edge in lattice_a.edges.items():
+            new_edge = LatticeEdge(
+                id=f"a_{eid}",
+                source_id=remap_vertex_id(edge.source_id, "a"),
+                target_ids=[remap_vertex_id(tid, "a") for tid in edge.target_ids],
+                weight=edge.weight,
+                edge_type=edge.edge_type
+            )
+            result.add_edge(new_edge)
+        
+        # Add edges from B
+        for eid, edge in lattice_b.edges.items():
+            new_edge = LatticeEdge(
+                id=f"b_{eid}",
+                source_id=remap_vertex_id(edge.source_id, "b"),
+                target_ids=[remap_vertex_id(tid, "b") for tid in edge.target_ids],
+                weight=edge.weight,
+                edge_type=edge.edge_type
+            )
+            result.add_edge(new_edge)
+        
+        stats["final_vertices"] = len(result.vertices)
+        stats["final_edges"] = len(result.edges)
+        
+        return result, stats
+    
+    def join_multiple(
+        self,
+        lattices: List[SemanticLattice],
+        name: Optional[str] = None,
+        domain: Optional[str] = None
+    ) -> Tuple[SemanticLattice, Dict]:
+        """
+        Join multiple lattices sequentially.
+        
+        L_1 ⊔ L_2 ⊔ ... ⊔ L_n
+        
+        Uses left-associative folding: ((L_1 ⊔ L_2) ⊔ L_3) ⊔ ...
+        """
+        if not lattices:
+            raise ValueError("Cannot join empty list of lattices")
+        
+        if len(lattices) == 1:
+            return lattices[0], {"single_lattice": True}
+        
+        # Fold left
+        result = lattices[0]
+        all_stats = []
+        
+        for i, lattice in enumerate(lattices[1:], 1):
+            result, stats = self.compute_join(result, lattice)
+            stats["join_step"] = i
+            all_stats.append(stats)
+        
+        # Set final name/domain
+        if name:
+            result.name = name
+        if domain:
+            result.domain = domain
+        
+        combined_stats = {
+            "total_joins": len(all_stats),
+            "join_steps": all_stats,
+            "final_vertices": len(result.vertices),
+            "final_edges": len(result.edges)
+        }
+        
+        return result, combined_stats
+
+
+def create_lattice_from_atoms(
+    atoms: List[MeaningAtom],
+    name: str,
+    domain: str,
+    embedder=None
+) -> SemanticLattice:
+    """
+    Create a SemanticLattice from a list of MeaningAtoms.
+    
+    Useful for converting Meet operation results into a lattice structure
+    that can be saved and later joined with other lattices.
+    
+    Args:
+        atoms: List of MeaningAtoms (e.g., from LatticeMeet.compute_meet)
+        name: Name for the lattice
+        domain: Domain label (e.g., "law", "medicine", "code")
+        embedder: Optional embedder to compute embeddings if missing
+    
+    Returns:
+        SemanticLattice ready for serialization or Join operations
+    """
+    lattice = SemanticLattice(name=name, domain=domain)
+    
+    # Embed atoms if needed
+    if embedder is not None:
+        texts_to_embed = [a.text for a in atoms if a.embedding is None]
+        if texts_to_embed:
+            embeddings = embedder.encode(texts_to_embed, normalize_embeddings=True)
+            emb_idx = 0
+            for atom in atoms:
+                if atom.embedding is None:
+                    atom.embedding = embeddings[emb_idx]
+                    emb_idx += 1
+    
+    # Convert atoms to vertices
+    for atom in atoms:
+        vertex = LatticeVertex.from_atom(atom, domain=domain)
+        lattice.add_vertex(vertex)
+    
+    # Create sequential edges (simple chain structure)
+    # More sophisticated edge creation could use semantic similarity
+    vertex_ids = list(lattice.vertices.keys())
+    for i in range(len(vertex_ids) - 1):
+        import hashlib
+        edge_id = hashlib.md5(f"{vertex_ids[i]}:{vertex_ids[i+1]}".encode()).hexdigest()[:16]
+        edge = LatticeEdge(
+            id=edge_id,
+            source_id=vertex_ids[i],
+            target_ids=[vertex_ids[i + 1]],
+            weight=1.0,
+            edge_type="sequential"
+        )
+        lattice.add_edge(edge)
+    
+    return lattice
