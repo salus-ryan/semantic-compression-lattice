@@ -1,8 +1,12 @@
 # SCL-Based Hallucination-Free Inference Engine
-# Dependencies for local CPU-based inference (64GB RAM)
+# Dependencies for local inference with Ollama
 
 # Core inference via Ollama
 ollama>=0.3.0
+
+# API Server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 
 # Embeddings
 sentence-transformers>=2.2.0

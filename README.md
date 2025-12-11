@@ -88,6 +88,37 @@ python scl_engine.py --query "Explain quantum entanglement" \
     --models llama3.1:8b mistral:7b phi3:medium
 ```
 
+### API Server (Recommended)
+
+Keep models loaded in VRAM with the FastAPI server:
+
+```bash
+# Start the server
+python scl_serve.py
+
+# Or with uvicorn directly
+uvicorn scl_serve:app --host 0.0.0.0 --port 8000
+```
+
+Query the API:
+
+```bash
+curl -X POST http://localhost:8000/v1/truth \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Who invented the printing press?"}'
+```
+
+**Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/truth` | POST | Query the SCL engine |
+| `/v1/cache/stats` | GET | View cache statistics |
+| `/v1/cache/entries` | GET | List cached queries |
+| `/v1/cache` | DELETE | Clear the cache |
+| `/health` | GET | Health check |
+
+**Lattice Cache (Theorem 5):** Repeated queries return in <1ms by reusing computed Meaning Atoms.
+
 ### Python API
 
 ```python
