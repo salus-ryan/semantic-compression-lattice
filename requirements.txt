@@ -26,3 +26,18 @@ requests>=2.31.0
 
 # Code parsing (Shell 3)
 # Uses built-in ast module for Python
+
+# Math verification (Shell 4 - Hardened)
+sympy>=1.12
+
+# Visualization
+networkx>=3.0
+pyvis>=0.3.0
+matplotlib>=3.7.0
+
+# Knowledge ingestion
+# requests already included above
+
+# Scheduler
+schedule>=1.2.0
+pyyaml>=6.0

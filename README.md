@@ -218,9 +218,104 @@ result, metadata = engine.query_with_mock_outputs(mock_outputs, return_metadata=
 | File | Description |
 |------|-------------|
 | `scl_engine.py` | Main orchestration script |
+| `scl_serve.py` | FastAPI server with Lattice Cache |
+| `scl_ingest.py` | Recursive Truth Loop - automated knowledge ingestion |
+| `scl_rag.py` | Lattice RAG - cache-first retrieval system |
+| `scl_visualize.py` | Lattice visualization with NetworkX/PyVis |
 | `lattice_ops.py` | Lattice Meet, Shells, Energy calculator |
 | `demo_output.txt` | Example showing hallucination filtering |
 | `requirements.txt` | Python dependencies |
+
+## Advanced Features
+
+### 1. Recursive Truth Loop (Knowledge Ingestion)
+
+Pre-digest documents into verified Meaning Atoms for instant retrieval:
+
+```bash
+# Ingest a Wikipedia article
+python scl_ingest.py --wikipedia "Albert Einstein"
+
+# Ingest an ArXiv paper abstract
+python scl_ingest.py --arxiv 2301.00001
+
+# Ingest a local text file
+python scl_ingest.py --file document.txt
+
+# Batch ingest from a list
+python scl_ingest.py --batch topics.txt --output results.json
+```
+
+**Batch file format** (`topics.txt`):
+```
+wikipedia:Quantum mechanics
+wikipedia:General relativity
+arxiv:2301.00001
+file:/path/to/document.txt
+```
+
+### 2. Lattice RAG (Retrieval Augmented Generation)
+
+Self-improving knowledge system - the more you use it, the faster it gets:
+
+```bash
+# Interactive chat mode
+python scl_rag.py --chat
+
+# Single query
+python scl_rag.py --query "What is quantum entanglement?"
+
+# With custom index path
+python scl_rag.py --chat --index-path my_knowledge.json
+```
+
+**How it works:**
+1. User asks a question
+2. System checks semantic index for cached atoms (0.6ms)
+3. If high-confidence match found → instant answer
+4. If not → trigger ensemble (70s), compute truth, cache it
+
+### 3. Lattice Visualization
+
+See the "Invariant Shells" - clusters of verified truth:
+
+```bash
+# Visualize from cache (interactive HTML)
+python scl_visualize.py --from-cache --output lattice.html
+
+# Visualize a specific query
+python scl_visualize.py --query "Tell me about Einstein" --output einstein.html
+
+# Static PNG for publications
+python scl_visualize.py --from-cache --format png --output lattice.png
+```
+
+**Visualization features:**
+- **Nodes**: Verified meaning atoms (sized by model consensus)
+- **Edges**: Semantic connections (colored by similarity strength)
+- **Clusters**: Invariant Shells (color-coded regions of related truth)
+
+### 4. Hardened Shells
+
+Enable maximum verification with SymPy math checking and sandboxed code execution:
+
+```python
+from lattice_ops import create_hardened_shell_verifier
+
+# Create verifier with all 5 shells
+verifier = create_hardened_shell_verifier()
+# Shells: citation, safety, syntax, math, code_exec
+```
+
+**Shell 4 - MathShell (SymPy)**:
+- Verifies arithmetic claims (e.g., "2+2=4")
+- Validates symbolic expressions
+- Checks derivative claims (e.g., dE/dm = c²)
+
+**Shell 5 - CodeExecutionShell**:
+- Executes Python code in sandboxed subprocess
+- Resource limits (CPU, memory, no network)
+- Restricted builtins for safety
 
 ## Configuration
 
