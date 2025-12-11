@@ -1,0 +1,123 @@
+================================================================================
+SCL HALLUCINATION FILTERING DEMONSTRATION
+================================================================================
+Date: December 2025
+Reference: "A Rigorous Formalization of the Semantic Compression Lattice"
+
+This demonstration shows how the Lattice Meet (⊓) operation filters out
+hallucinations by computing the intersection of semantic vertices across
+three distinct model outputs.
+
+================================================================================
+SCENARIO: Query about Albert Einstein
+================================================================================
+
+Three models were asked about Albert Einstein. One model (Qwen-2.5-14B)
+hallucinated a fake book title: "The Quantum Dreams of a Wandering Mind"
+
+--------------------------------------------------------------------------------
+MODEL OUTPUTS:
+--------------------------------------------------------------------------------
+
+[llama-3.1-8b - "The Logician"]:
+Albert Einstein was a theoretical physicist who developed the theory of relativity.
+He was born in Ulm, Germany in 1879.
+Einstein received the Nobel Prize in Physics in 1921 for his discovery of the photoelectric effect.
+He published his famous equation E=mc² which describes mass-energy equivalence.
+Einstein later moved to the United States and worked at Princeton University.
+
+[qwen-2.5-14b - "The Technician"]:
+Albert Einstein was a renowned theoretical physicist best known for developing the theory of relativity.
+Born in 1879 in Ulm, Germany, he showed early aptitude for mathematics and physics.
+In 1921, Einstein was awarded the Nobel Prize in Physics for explaining the photoelectric effect.
+His equation E=mc² revolutionized our understanding of mass and energy.
+Einstein spent his later years at Princeton University in the United States.
+His book "The Quantum Dreams of a Wandering Mind" explored his philosophical views on science.
+  ^^^^ HALLUCINATION: This book does not exist!
+
+[mistral-nemo-12b - "The Writer"]:
+Albert Einstein, born in Ulm, Germany in 1879, was one of the most influential physicists in history.
+He is best known for his theory of relativity and contributions to quantum mechanics.
+Einstein won the Nobel Prize in Physics in 1921 for his work on the photoelectric effect.
+The famous equation E=mc² demonstrates the equivalence of mass and energy.
+After fleeing Nazi Germany, Einstein joined Princeton University where he continued his research.
+
+================================================================================
+LATTICE MEET (⊓) COMPUTATION
+================================================================================
+
+Theory (Theorem 1): The Meet is defined by intersection of vertex sets.
+An atom v_A survives IFF ∃ matches in B AND C with Cosine Similarity > δ (0.85)
+
+Step 1: Split each response into meaning atoms (sentences)
+Step 2: Embed all atoms using nomic-embed-text-v1.5 into shared space V ⊂ ℝ^d
+Step 3: Compute pairwise cosine similarities
+Step 4: Filter atoms without consensus across all models
+
+Parameters:
+- Similarity Threshold (δ): 0.85
+- Total atoms across models: ~16
+- Atoms per model: llama=5, qwen=6, mistral=5
+
+--------------------------------------------------------------------------------
+FILTERED ATOMS (Failed consensus check):
+--------------------------------------------------------------------------------
+
+✗ "His book 'The Quantum Dreams of a Wandering Mind' explored his philosophical 
+   views on science."
+   
+   Reason: This sentence has NO semantic match (similarity > 0.85) in either
+   Llama-3.1-8B or Mistral-Nemo-12B outputs. It is a hallucination unique to
+   Qwen-2.5-14B and is correctly filtered out by the Meet operation.
+
+================================================================================
+FINAL OUTPUT (Intersubjective Truth)
+================================================================================
+
+The following atoms survived the Lattice Meet - they represent claims that
+all three models agree upon (within the similarity threshold):
+
+"Albert Einstein was a theoretical physicist who developed the theory of 
+relativity. He was born in Ulm, Germany in 1879. Einstein received the Nobel 
+Prize in Physics in 1921 for his discovery of the photoelectric effect. He 
+published his famous equation E=mc² which describes mass-energy equivalence. 
+Einstein later moved to the United States and worked at Princeton University."
+
+================================================================================
+ANALYSIS
+================================================================================
+
+The SCL system successfully:
+
+1. DETECTED the hallucinated book title by noting it had no semantic matches
+   in the other two model outputs
+
+2. PRESERVED factual claims that all models agreed upon:
+   - Einstein's profession (theoretical physicist)
+   - Birth location and year (Ulm, Germany, 1879)
+   - Nobel Prize (1921, photoelectric effect)
+   - Famous equation (E=mc²)
+   - Princeton University affiliation
+
+3. DEMONSTRATED the core principle: Hallucinations are rarely identical across
+   different model families, so the intersection operation filters them out
+   while retaining robust, intersubjective truths.
+
+================================================================================
+MATHEMATICAL FOUNDATION
+================================================================================
+
+From the paper:
+
+Definition (Lattice Meet): For SCLs L₁ and L₂:
+  L₁ ⊓ L₂ has vertex set V₁ ∩ V₂ (intersection)
+
+The Meet preserves only atoms that exist in ALL lattices, which corresponds
+to semantic claims that all models generate with high similarity.
+
+Theorem 1 (Completeness): Every pair of SCLs has a greatest lower bound (meet),
+defined by intersection of vertex sets, admissible edges, and shell intersections.
+
+This ensures the Meet operation is well-defined and produces a valid SCL.
+
+================================================================================

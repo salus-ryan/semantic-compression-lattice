@@ -1,0 +1,24 @@
+# SCL-Based Hallucination-Free Inference Engine
+# Dependencies for local CPU-based inference (64GB RAM)
+
+# Core inference via Ollama
+ollama>=0.3.0
+
+# Embeddings
+sentence-transformers>=2.2.0
+
+# Numerical computing
+numpy>=1.24.0
+
+# NLP utilities
+nltk>=3.8.0
+
+# Safety classifier (Shell 2)
+transformers>=4.35.0
+torch>=2.0.0
+
+# URL verification (Shell 1)
+requests>=2.31.0
+
+# Code parsing (Shell 3)
+# Uses built-in ast module for Python
